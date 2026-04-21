@@ -1,4 +1,4 @@
-export type LocalTranscriptionProvider = "whisper" | "nvidia";
+export type LocalTranscriptionProvider = "whisper" | "nvidia" | "intel-npu";
 
 export type TranscriptionStatus = "completed" | "failed" | "pending";
 
@@ -499,6 +499,28 @@ declare global {
         }) => void
       ) => () => void;
       onCudaFallbackNotification: (callback: () => void) => () => void;
+
+      // Intel NPU acceleration
+      detectNpu: () => Promise<{ hasNpu: boolean; deviceName?: string }>;
+      checkNpuAvailability: () => Promise<{
+        hasNpu: boolean;
+        deviceName?: string;
+        pythonAvailable: boolean;
+        openvinoAvailable: boolean;
+        serverAvailable: boolean;
+      }>;
+      installNpuDependencies: () => Promise<{ success: boolean; error?: string }>;
+      listNpuModels: () => Promise<
+        Array<{ id: string; name: string; description: string; size: string; downloaded: boolean }>
+      >;
+      downloadNpuModel: (modelName: string) => Promise<{ success: boolean; error?: string }>;
+      deleteNpuModel: (modelName: string) => Promise<{ success: boolean; error?: string }>;
+      npuServerStart: (modelName: string) => Promise<{ success: boolean; port?: number; reason?: string }>;
+      npuServerStop: () => Promise<void>;
+      npuServerStatus: () => Promise<{ running: boolean; port?: number; model?: string }>;
+      onNpuDownloadProgress: (
+        callback: (data: { type: string; percentage: number; message?: string }) => void
+      ) => () => void;
 
       // Parakeet operations (NVIDIA via sherpa-onnx)
       transcribeLocalParakeet: (

@@ -483,6 +483,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           activeModel = parakeetModel;
           result = await this.processWithLocalParakeet(audioBlob, parakeetModel, metadata);
         } else {
+          // processWithLocalWhisper handles intel-npu routing internally
           activeModel = whisperModel;
           result = await this.processWithLocalWhisper(audioBlob, whisperModel, metadata);
         }
@@ -577,10 +578,33 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     const timings = {};
 
     try {
-      // Send original audio to main process - FFmpeg in main process handles conversion
-      // (renderer-side AudioContext conversion was unreliable with WebM/Opus format)
       const arrayBuffer = await audioBlob.arrayBuffer();
       const language = getBaseLanguageCode(getSettings().preferredLanguage);
+
+      // Route to Intel NPU if that's the active provider
+      const s = getSettings();
+      const isNpu = s.localTranscriptionProvider === "intel-npu" ||
+        localStorage.getItem("localTranscriptionProvider") === "intel-npu";
+      if (isNpu && window.electronAPI?.transcribeLocalNpu) {
+        const npuOptions = { model: s.npuModel || "whisper-base" };
+        if (language) npuOptions.language = language;
+
+        const transcriptionStart = performance.now();
+        const result = await window.electronAPI.transcribeLocalNpu(arrayBuffer, npuOptions);
+        timings.transcriptionProcessingDurationMs = Math.round(performance.now() - transcriptionStart);
+
+        if (result && result.success && typeof result.text === "string") {
+          if (!result.text.trim()) throw new Error("No audio detected");
+          const rawText = result.text;
+          const reasoningStart = performance.now();
+          const text = await this.processTranscription(result.text, "local-intel-npu");
+          timings.reasoningProcessingDurationMs = Math.round(performance.now() - reasoningStart);
+          return { success: true, text: text || result.text, rawText, source: "local-intel-npu", timings };
+        } else {
+          throw new Error(result?.error || "NPU transcription failed");
+        }
+      }
+
       const options = { model };
       if (language) {
         options.language = language;
@@ -730,6 +754,88 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         }
       } else {
         throw new Error(`Parakeet failed: ${error.message}`);
+      }
+    }
+  }
+
+  async processWithLocalNpu(audioBlob, model = "whisper-base", metadata = {}) {
+    const timings = {};
+
+    try {
+      const arrayBuffer = await audioBlob.arrayBuffer();
+      const language = getBaseLanguageCode(getSettings().preferredLanguage);
+      const options = { model, provider: "intel-npu" };
+      if (language) {
+        options.language = language;
+      }
+
+      const dictionaryPrompt = this.getCustomDictionaryPrompt();
+      if (dictionaryPrompt) {
+        options.initialPrompt = dictionaryPrompt;
+      }
+
+      logger.debug(
+        "NPU transcription starting",
+        {
+          audioFormat: audioBlob.type,
+          audioSizeBytes: audioBlob.size,
+          model,
+        },
+        "performance"
+      );
+
+      const transcriptionStart = performance.now();
+      if (!window.electronAPI?.transcribeLocalNpu) {
+        throw new Error("transcribeLocalNpu not available in electronAPI — restart the app fully");
+      }
+      const result = await window.electronAPI.transcribeLocalNpu(arrayBuffer, options);
+      timings.transcriptionProcessingDurationMs = Math.round(
+        performance.now() - transcriptionStart
+      );
+
+      if (result && result.success && typeof result.text === "string") {
+        if (!result.text.trim()) {
+          throw new Error("No audio detected");
+        }
+        const rawText = result.text;
+        const reasoningStart = performance.now();
+        const text = await this.processTranscription(result.text, "local-intel-npu");
+        timings.reasoningProcessingDurationMs = Math.round(performance.now() - reasoningStart);
+
+        if (text !== null && text !== undefined) {
+          return {
+            success: true,
+            text: text || result.text,
+            rawText,
+            source: "local-intel-npu",
+            timings,
+          };
+        } else {
+          throw new Error("No text transcribed");
+        }
+      } else {
+        const errMsg = result?.error || result?.message || "NPU transcription failed";
+        logger.error("NPU result had no text", { result: JSON.stringify(result) }, "transcription");
+        throw new Error(errMsg);
+      }
+    } catch (error) {
+      if (error.message === "No audio detected") {
+        throw error;
+      }
+
+      const { allowOpenAIFallback, useLocalWhisper: isLocalMode } = getSettings();
+
+      if (allowOpenAIFallback && isLocalMode) {
+        try {
+          const fallbackResult = await this.processWithOpenAIAPI(audioBlob, metadata);
+          return { ...fallbackResult, source: "openai-fallback" };
+        } catch (fallbackError) {
+          throw new Error(
+            `NPU failed: ${error.message}. OpenAI fallback also failed: ${fallbackError.message}`
+          );
+        }
+      } else {
+        throw new Error(`NPU failed: ${error.message}`);
       }
     }
   }

@@ -95,6 +95,7 @@ class IPCHandlers {
     this.clipboardManager = managers.clipboardManager;
     this.whisperManager = managers.whisperManager;
     this.parakeetManager = managers.parakeetManager;
+    this.intelNpuManager = managers.intelNpuManager;
     this.windowManager = managers.windowManager;
     this.updateManager = managers.updateManager;
     this.windowsKeyManager = managers.windowsKeyManager;
@@ -748,6 +749,10 @@ class IPCHandlers {
           const result = await this.parakeetManager.transcribeLocalParakeet(audioBuffer, options);
           return result;
         }
+        if (options.provider === "intel-npu") {
+          const result = await this.intelNpuManager.transcribeLocalNpu(audioBuffer, options);
+          return result;
+        }
         const result = await this.whisperManager.transcribeLocalWhisper(audioBuffer, options);
         return result;
       } catch (error) {
@@ -1024,6 +1029,87 @@ class IPCHandlers {
         await this.whisperManager.stopServer().catch(() => {});
       }
       return result;
+    });
+
+    ipcMain.handle("get-environment-variable", async (_event, key) => {
+      return process.env[key] || null;
+    });
+
+    // Intel NPU handlers
+    ipcMain.handle("detect-npu", async () => {
+      const { detectIntelNpu } = require("../utils/npuDetection");
+      return detectIntelNpu();
+    });
+
+    ipcMain.handle("check-npu-availability", async () => {
+      return this.intelNpuManager.checkNpuAvailability();
+    });
+
+    ipcMain.handle("install-npu-dependencies", async () => {
+      try {
+        return await this.intelNpuManager.installDependencies();
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    });
+
+    ipcMain.handle("list-npu-models", async () => {
+      return this.intelNpuManager.listModels();
+    });
+
+    ipcMain.handle("download-npu-model", async (event, modelName) => {
+      try {
+        const result = await this.intelNpuManager.downloadModel(modelName, (progress) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send("npu-download-progress", progress);
+          }
+        });
+        this._syncStartupEnv({ INTEL_NPU_MODEL: modelName });
+        return result;
+      } catch (error) {
+        debugLogger.error("NPU model download failed", { error: error.message });
+        return { success: false, error: error.message };
+      }
+    });
+
+    ipcMain.handle("delete-npu-model", async (event, modelName) => {
+      return this.intelNpuManager.deleteModel(modelName);
+    });
+
+    ipcMain.handle("npu-server-start", async (event, modelName) => {
+      return this.intelNpuManager.startServer(modelName);
+    });
+
+    ipcMain.handle("npu-server-stop", async () => {
+      return this.intelNpuManager.stopServer();
+    });
+
+    ipcMain.handle("npu-server-status", async () => {
+      return this.intelNpuManager.getServerStatus();
+    });
+
+    ipcMain.handle("transcribe-local-npu", async (event, audioBlob, options = {}) => {
+      debugLogger.log("transcribe-local-npu called", {
+        audioBlobType: typeof audioBlob,
+        audioBlobSize: audioBlob?.byteLength || audioBlob?.length || 0,
+        options,
+      });
+
+      try {
+        const result = await this.intelNpuManager.transcribeLocalNpu(audioBlob, options);
+
+        debugLogger.log("NPU result", {
+          hasText: !!result.text,
+        });
+
+        return { success: true, text: result.text };
+      } catch (error) {
+        debugLogger.error("NPU transcription error", error);
+        return {
+          success: false,
+          error: error.message || "NPU transcription failed",
+        };
+      }
     });
 
     ipcMain.handle("check-ffmpeg-availability", async (event) => {

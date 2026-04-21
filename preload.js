@@ -22,6 +22,17 @@ const registerListener = (channel, handlerFactory) => {
   };
 };
 
+// Sync LOCAL_TRANSCRIPTION_PROVIDER from main process env to renderer localStorage
+// This ensures the renderer knows about intel-npu before the settings store initializes
+ipcRenderer.invoke("get-environment-variable", "LOCAL_TRANSCRIPTION_PROVIDER").then((val) => {
+  if (val && val !== localStorage.getItem("localTranscriptionProvider")) {
+    localStorage.setItem("localTranscriptionProvider", val);
+  }
+}).catch(() => {});
+ipcRenderer.invoke("get-environment-variable", "INTEL_NPU_MODEL").then((val) => {
+  if (val) localStorage.setItem("npuModel", val);
+}).catch(() => {});
+
 contextBridge.exposeInMainWorld("electronAPI", {
   pasteText: (text, options) => ipcRenderer.invoke("paste-text", text, options),
   hideWindow: () => ipcRenderer.invoke("hide-window"),
@@ -207,6 +218,26 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onCudaFallbackNotification: registerListener(
     "cuda-fallback-notification",
     (callback) => () => callback()
+  ),
+
+  // Environment variable access
+  getEnvironmentVariable: (key) => ipcRenderer.invoke("get-environment-variable", key),
+
+  // Intel NPU acceleration
+  transcribeLocalNpu: (audioBlob, options) =>
+    ipcRenderer.invoke("transcribe-local-npu", audioBlob, options),
+  detectNpu: () => ipcRenderer.invoke("detect-npu"),
+  checkNpuAvailability: () => ipcRenderer.invoke("check-npu-availability"),
+  installNpuDependencies: () => ipcRenderer.invoke("install-npu-dependencies"),
+  listNpuModels: () => ipcRenderer.invoke("list-npu-models"),
+  downloadNpuModel: (modelName) => ipcRenderer.invoke("download-npu-model", modelName),
+  deleteNpuModel: (modelName) => ipcRenderer.invoke("delete-npu-model", modelName),
+  npuServerStart: (modelName) => ipcRenderer.invoke("npu-server-start", modelName),
+  npuServerStop: () => ipcRenderer.invoke("npu-server-stop"),
+  npuServerStatus: () => ipcRenderer.invoke("npu-server-status"),
+  onNpuDownloadProgress: registerListener(
+    "npu-download-progress",
+    (callback) => (_event, data) => callback(data)
   ),
 
   // Local Parakeet (NVIDIA) functions

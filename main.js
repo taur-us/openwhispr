@@ -184,6 +184,7 @@ const DevServerManager = require("./src/helpers/devServerManager");
 const WindowsKeyManager = require("./src/helpers/windowsKeyManager");
 const TextEditMonitor = require("./src/helpers/textEditMonitor");
 const WhisperCudaManager = require("./src/helpers/whisperCudaManager");
+const { IntelNpuManager } = require("./src/helpers/intelNpu");
 const GoogleCalendarManager = require("./src/helpers/googleCalendarManager");
 const MeetingProcessDetector = require("./src/helpers/meetingProcessDetector");
 const AudioActivityDetector = require("./src/helpers/audioActivityDetector");
@@ -207,6 +208,7 @@ let globeKeyManager = null;
 let windowsKeyManager = null;
 let textEditMonitor = null;
 let whisperCudaManager = null;
+let intelNpuManager = null;
 let googleCalendarManager = null;
 let meetingDetectionEngine = null;
 let audioTapManager = null;
@@ -273,6 +275,7 @@ function initializeCoreManagers() {
     whisperCudaManager = new WhisperCudaManager();
   }
   parakeetManager = new ParakeetManager();
+  intelNpuManager = new IntelNpuManager();
   googleCalendarManager = new GoogleCalendarManager(databaseManager, windowManager);
   meetingDetectionEngine = new MeetingDetectionEngine(
     googleCalendarManager,
@@ -296,6 +299,7 @@ function initializeCoreManagers() {
     clipboardManager,
     whisperManager,
     parakeetManager,
+    intelNpuManager,
     windowManager,
     updateManager,
     windowsKeyManager,
@@ -656,6 +660,14 @@ async function startApp() {
   };
   parakeetManager.initializeAtStartup(parakeetSettings).catch((err) => {
     debugLogger.debug("Parakeet startup init error (non-fatal)", { error: err.message });
+  });
+
+  const npuSettings = {
+    localTranscriptionProvider: process.env.LOCAL_TRANSCRIPTION_PROVIDER || "",
+    npuModel: process.env.INTEL_NPU_MODEL,
+  };
+  intelNpuManager.initializeAtStartup(npuSettings).catch((err) => {
+    debugLogger.debug("Intel NPU startup init error (non-fatal)", { error: err.message });
   });
 
   if (process.env.REASONING_PROVIDER === "local" && process.env.LOCAL_REASONING_MODEL) {
@@ -1141,6 +1153,10 @@ if (gotSingleInstanceLock) {
     // Stop parakeet WS server if running
     if (parakeetManager) {
       parakeetManager.stopServer().catch(() => {});
+    }
+    // Stop Intel NPU server if running
+    if (intelNpuManager) {
+      intelNpuManager.stopServer().catch(() => {});
     }
     // Stop llama-server if running
     const modelManager = require("./src/helpers/modelManagerBridge").default;

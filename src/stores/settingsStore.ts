@@ -223,10 +223,12 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   uiLanguage: normalizeUiLanguage(isBrowser ? localStorage.getItem("uiLanguage") : null),
   useLocalWhisper: readBoolean("useLocalWhisper", false),
   whisperModel: readString("whisperModel", "base"),
-  localTranscriptionProvider: (readString("localTranscriptionProvider", "whisper") === "nvidia"
-    ? "nvidia"
-    : "whisper") as LocalTranscriptionProvider,
+  localTranscriptionProvider: (() => {
+    const v = readString("localTranscriptionProvider", "whisper");
+    return (v === "nvidia" || v === "intel-npu") ? v : "whisper";
+  })() as LocalTranscriptionProvider,
   parakeetModel: readString("parakeetModel", ""),
+  npuModel: readString("npuModel", "whisper-base"),
   allowOpenAIFallback: readBoolean("allowOpenAIFallback", false),
   allowLocalFallback: readBoolean("allowLocalFallback", false),
   fallbackWhisperModel: readString("fallbackWhisperModel", "base"),
@@ -324,6 +326,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     set({ localTranscriptionProvider: value });
   },
   setParakeetModel: createStringSetter("parakeetModel"),
+  setNpuModel: createStringSetter("npuModel"),
   setAllowOpenAIFallback: createBooleanSetter("allowOpenAIFallback"),
   setAllowLocalFallback: createBooleanSetter("allowLocalFallback"),
   setFallbackWhisperModel: createStringSetter("fallbackWhisperModel"),
@@ -693,6 +696,15 @@ export async function initializeSettings(): Promise<void> {
       if (!state.customReasoningApiKey) {
         const envKey = await window.electronAPI.getCustomReasoningKey?.();
         if (envKey) createStringSetter("customReasoningApiKey")(envKey);
+      }
+      // Sync local transcription provider from .env (for intel-npu support)
+      const envProvider = await window.electronAPI.getEnvironmentVariable?.("LOCAL_TRANSCRIPTION_PROVIDER");
+      if (envProvider === "intel-npu" && state.localTranscriptionProvider !== "intel-npu") {
+        state.setLocalTranscriptionProvider("intel-npu" as LocalTranscriptionProvider);
+      }
+      const envNpuModel = await window.electronAPI.getEnvironmentVariable?.("INTEL_NPU_MODEL");
+      if (envNpuModel) {
+        createStringSetter("npuModel")(envNpuModel);
       }
     } catch (err) {
       logger.warn(

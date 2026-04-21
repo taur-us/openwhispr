@@ -137,7 +137,8 @@ function useSettingsInternal() {
   useEffect(() => {
     if (typeof window === "undefined" || !window.electronAPI?.syncStartupPreferences) return;
 
-    const model = localTranscriptionProvider === "nvidia" ? parakeetModel : whisperModel;
+    const model = localTranscriptionProvider === "nvidia" ? parakeetModel :
+      localTranscriptionProvider === "intel-npu" ? store.npuModel : whisperModel;
     window.electronAPI
       .syncStartupPreferences({
         useLocalWhisper,
@@ -168,6 +169,7 @@ function useSettingsInternal() {
     uiLanguage: store.uiLanguage,
     localTranscriptionProvider: store.localTranscriptionProvider,
     parakeetModel: store.parakeetModel,
+    npuModel: store.npuModel,
     allowOpenAIFallback: store.allowOpenAIFallback,
     allowLocalFallback: store.allowLocalFallback,
     fallbackWhisperModel: store.fallbackWhisperModel,
@@ -197,6 +199,7 @@ function useSettingsInternal() {
     setUiLanguage: store.setUiLanguage,
     setLocalTranscriptionProvider: store.setLocalTranscriptionProvider,
     setParakeetModel: store.setParakeetModel,
+    setNpuModel: store.setNpuModel,
     setAllowOpenAIFallback: store.setAllowOpenAIFallback,
     setAllowLocalFallback: store.setAllowLocalFallback,
     setFallbackWhisperModel: store.setFallbackWhisperModel,

@@ -168,6 +168,8 @@ interface TranscriptionSectionProps {
   setWhisperModel: (model: string) => void;
   parakeetModel: string;
   setParakeetModel: (model: string) => void;
+  npuModel: string;
+  setNpuModel: (model: string) => void;
   openaiApiKey: string;
   setOpenaiApiKey: (key: string) => void;
   groqApiKey: string;
@@ -203,6 +205,8 @@ function TranscriptionSection({
   setWhisperModel,
   parakeetModel,
   setParakeetModel,
+  npuModel,
+  setNpuModel,
   openaiApiKey,
   setOpenaiApiKey,
   groqApiKey,
@@ -360,11 +364,14 @@ function TranscriptionSection({
           selectedCloudModel={cloudTranscriptionModel}
           onCloudModelSelect={setCloudTranscriptionModel}
           selectedLocalModel={
-            localTranscriptionProvider === "nvidia" ? parakeetModel : whisperModel
+            localTranscriptionProvider === "nvidia" ? parakeetModel :
+            localTranscriptionProvider === "intel-npu" ? npuModel : whisperModel
           }
           onLocalModelSelect={(modelId) => {
             if (localTranscriptionProvider === "nvidia") {
               setParakeetModel(modelId);
+            } else if (localTranscriptionProvider === "intel-npu") {
+              setNpuModel(modelId);
             } else {
               setWhisperModel(modelId);
             }
@@ -666,6 +673,8 @@ export default function SettingsPage({ activeSection = "general" }: SettingsPage
     setWhisperModel,
     setLocalTranscriptionProvider,
     setParakeetModel,
+    npuModel,
+    setNpuModel,
     setCloudTranscriptionProvider,
     setCloudTranscriptionModel,
     setCloudTranscriptionBaseUrl,

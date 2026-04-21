@@ -27,6 +27,7 @@ const PERSISTED_KEYS = [
   "START_MINIMIZED",
   "UI_LANGUAGE",
   "WHISPER_CUDA_ENABLED",
+  "INTEL_NPU_MODEL",
 ];
 
 class EnvironmentManager {

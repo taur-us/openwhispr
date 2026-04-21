@@ -27,6 +27,7 @@ import { API_ENDPOINTS, normalizeBaseUrl } from "../config/constants";
 import { createExternalLinkHandler } from "../utils/externalLinks";
 import { getCachedPlatform } from "../utils/platform";
 import type { CudaWhisperStatus } from "../types/electron";
+import { useSettingsStore } from "../stores/settingsStore";
 import logger from "../utils/logger";
 
 interface LocalModel {
@@ -217,6 +218,7 @@ const VALID_CLOUD_PROVIDER_IDS = CLOUD_PROVIDER_TABS.map((p) => p.id);
 const LOCAL_PROVIDER_TABS: Array<{ id: string; name: string; disabled?: boolean }> = [
   { id: "whisper", name: "OpenAI Whisper" },
   { id: "nvidia", name: "NVIDIA Parakeet" },
+  { id: "intel-npu", name: "Intel NPU" },
 ];
 
 interface ModeToggleProps {
@@ -282,9 +284,11 @@ export default function TranscriptionModelPicker({
   const { t } = useTranslation();
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
   const [parakeetModels, setParakeetModels] = useState<LocalModel[]>([]);
+  const [npuModels, setNpuModels] = useState<LocalModel[]>([]);
   const [internalLocalProvider, setInternalLocalProvider] = useState(selectedLocalProvider);
   const hasLoadedRef = useRef(false);
   const hasLoadedParakeetRef = useRef(false);
+  const hasLoadedNpuRef = useRef(false);
   const [cudaStatus, setCudaStatus] = useState<CudaWhisperStatus | null>(null);
   const [cudaDownloading, setCudaDownloading] = useState(false);
   const [cudaProgress, setCudaProgress] = useState<DownloadProgress>({
@@ -371,6 +375,31 @@ export default function TranscriptionModelPicker({
     }
   }, []);
 
+  const isLoadingNpuRef = useRef(false);
+  const loadNpuModelsRef = useRef<(() => Promise<void>) | null>(null);
+
+  const loadNpuModels = useCallback(async () => {
+    if (isLoadingNpuRef.current) return;
+    isLoadingNpuRef.current = true;
+
+    try {
+      const models = await window.electronAPI?.listNpuModels?.();
+      if (Array.isArray(models)) {
+        setNpuModels(
+          models.map((m: { id: string; name: string; description: string; size: string; downloaded: boolean }) => ({
+            model: m.id,
+            downloaded: m.downloaded,
+          }))
+        );
+      }
+    } catch (error) {
+      logger.error("Failed to load NPU models", { error }, "models");
+      setNpuModels([]);
+    } finally {
+      isLoadingNpuRef.current = false;
+    }
+  }, []);
+
   const ensureValidCloudSelection = useCallback(() => {
     const isValidProvider = VALID_CLOUD_PROVIDER_IDS.includes(selectedCloudProvider);
 
@@ -415,6 +444,9 @@ export default function TranscriptionModelPicker({
     loadParakeetModelsRef.current = loadParakeetModels;
   }, [loadParakeetModels]);
   useEffect(() => {
+    loadNpuModelsRef.current = loadNpuModels;
+  }, [loadNpuModels]);
+  useEffect(() => {
     ensureValidCloudSelectionRef.current = ensureValidCloudSelection;
   }, [ensureValidCloudSelection]);
 
@@ -427,6 +459,9 @@ export default function TranscriptionModelPicker({
     } else if (internalLocalProvider === "nvidia" && !hasLoadedParakeetRef.current) {
       hasLoadedParakeetRef.current = true;
       loadParakeetModelsRef.current?.();
+    } else if (internalLocalProvider === "intel-npu" && !hasLoadedNpuRef.current) {
+      hasLoadedNpuRef.current = true;
+      loadNpuModelsRef.current?.();
     }
   }, [useLocalWhisper, internalLocalProvider]);
 
@@ -435,6 +470,7 @@ export default function TranscriptionModelPicker({
 
     hasLoadedRef.current = false;
     hasLoadedParakeetRef.current = false;
+    hasLoadedNpuRef.current = false;
     ensureValidCloudSelectionRef.current?.();
   }, [useLocalWhisper]);
 
@@ -812,6 +848,85 @@ export default function TranscriptionModelPicker({
     );
   };
 
+  const NPU_MODEL_INFO: Record<string, { name: string; description: string; size: string; recommended?: boolean }> = {
+    "whisper-base": { name: "Whisper Base (NPU)", description: "Fast and accurate — best for Intel NPU", size: "~150MB", recommended: true },
+    "whisper-tiny": { name: "Whisper Tiny (NPU)", description: "Fastest, lower accuracy", size: "~75MB" },
+  };
+
+  const currentNpuModel = useSettingsStore((s) => s.npuModel);
+
+  const renderNpuModels = () => {
+    const modelsToRender =
+      npuModels.length === 0
+        ? Object.entries(NPU_MODEL_INFO).map(([modelId]) => ({
+            model: modelId,
+            downloaded: false,
+          }))
+        : npuModels;
+
+    return (
+      <div className="space-y-0.5">
+        <div className="mx-0.5 mb-2 rounded-md border border-border bg-surface-1 p-2.5">
+          <div className="flex items-center gap-1.5">
+            <Zap size={13} className="text-blue-500" />
+            <span className="text-xs font-medium text-foreground">Intel AI Boost NPU detected</span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Hardware-accelerated transcription using your Intel NPU
+          </p>
+        </div>
+        {modelsToRender.map((model) => {
+          const modelId = model.model;
+          const info = NPU_MODEL_INFO[modelId] ?? {
+            name: modelId,
+            description: "Intel NPU optimized model",
+            size: "Unknown",
+          };
+
+          return (
+            <LocalModelCard
+              key={modelId}
+              modelId={modelId}
+              name={info.name}
+              description={info.description}
+              size={info.size}
+              isSelected={modelId === currentNpuModel}
+              isDownloaded={model.downloaded ?? false}
+              isDownloading={false}
+              isCancelling={false}
+              recommended={info.recommended}
+              provider="intel-npu"
+              onSelect={() => {
+                // Write directly to store — bypasses parent prop chain
+                useSettingsStore.getState().setNpuModel(modelId);
+                useSettingsStore.getState().setLocalTranscriptionProvider("intel-npu");
+                onLocalModelSelect(modelId);
+                onLocalProviderSelect?.("intel-npu");
+              }}
+              onDelete={async () => {
+                await window.electronAPI?.deleteNpuModel?.(modelId);
+                loadNpuModelsRef.current?.();
+              }}
+              onDownload={async () => {
+                try {
+                  await window.electronAPI?.downloadNpuModel?.(modelId);
+                  await loadNpuModelsRef.current?.();
+                  try { localStorage.setItem("npuModel", modelId); } catch {}
+                  onLocalModelSelect(modelId);
+                  onLocalProviderSelect?.("intel-npu");
+                } catch (error) {
+                  logger.error("NPU model download failed", { error }, "models");
+                }
+              }}
+              onCancel={() => {}}
+              styles={styles}
+            />
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className={`space-y-2 ${className}`}>
       <ModeToggle useLocalWhisper={useLocalWhisper} onModeChange={handleModeChange} />
@@ -993,6 +1108,7 @@ export default function TranscriptionModelPicker({
           <div className="p-2">
             {internalLocalProvider === "whisper" && renderLocalModels()}
             {internalLocalProvider === "nvidia" && renderParakeetModels()}
+            {internalLocalProvider === "intel-npu" && renderNpuModels()}
           </div>
         </div>
       )}
