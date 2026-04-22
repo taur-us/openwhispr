@@ -95,6 +95,10 @@
     "resources/bin/linux-fast-paste",
     "resources/bin/linux-text-monitor",
     {
+      "from": "resources/npu-server",
+      "to": "npu-server"
+    },
+    {
       "from": "resources/bin/",
       "to": "bin/",
       "filter": [
