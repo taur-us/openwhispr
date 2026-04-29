@@ -688,7 +688,12 @@ async function startApp() {
   await trayManager.createTray();
 
   updateManager.setWindows(windowManager.mainWindow, windowManager.controlPanelWindow);
-  updateManager.checkForUpdatesOnStartup();
+  // Allow custom/forked builds to disable the auto-updater (which checks the
+  // upstream OpenWhispr GitHub release feed and surfaces noisy toasts when the
+  // network blocks it or no matching release exists).
+  if (process.env.OPENWHISPR_DISABLE_UPDATE !== "true") {
+    updateManager.checkForUpdatesOnStartup();
+  }
 
   if (process.platform === "darwin") {
     const { isGlobeLikeHotkey } = require("./src/helpers/hotkeyManager");

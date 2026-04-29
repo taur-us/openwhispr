@@ -102,12 +102,19 @@ async def inference(
             config = openvino_genai.WhisperGenerationConfig()
             config.max_new_tokens = 448
 
-            if language and language != "auto":
+            # The static NPU pipeline pre-compiles the generation graph and
+            # doesn't accept runtime language constraints — passing one raises
+            # 'lang_to_id.count(*language)' even when the token IS in the map.
+            # Whisper's built-in audio-based language detection still runs, so
+            # English speech transcribes as English without a forced hint.
+            if language and language != "auto" and device_name != "NPU":
                 lang_token = language if language.startswith("<|") else f"<|{language}|>"
                 try:
                     config.language = lang_token
                 except Exception as lang_err:
                     logger.warning(f"Could not set language '{lang_token}': {lang_err}, using auto-detect")
+            elif language and language != "auto" and device_name == "NPU":
+                logger.info(f"NPU static pipeline: '{language}' hint ignored, using audio-based detection")
 
             # initial_prompt is not supported on NPU static pipeline — skip for NPU
             if prompt and device_name != "NPU":

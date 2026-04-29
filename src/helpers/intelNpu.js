@@ -179,8 +179,15 @@ class IntelNpuManager {
     if (!pythonPath) throw new Error("Python 3 not found");
 
     return new Promise((resolve, reject) => {
+      // Pin openvino-genai/openvino/openvino-tokenizers to a matched 2025.4
+      // release. The 2026.x line introduced a stricter language-token check
+      // for the static NPU pipeline that breaks transcription, and OpenVINO
+      // requires the three packages to share a version (tokenizers depends on
+      // matching openvino runtime).
       const packages = [
-        "openvino-genai",
+        "openvino==2025.4.1",
+        "openvino-genai==2025.4.1.0",
+        "openvino-tokenizers==2025.4.1.0",
         "fastapi",
         "uvicorn",
         "python-multipart",
