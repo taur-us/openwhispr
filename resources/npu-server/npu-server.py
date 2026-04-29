@@ -101,14 +101,30 @@ async def inference(
         async with inference_lock:
             audio = load_audio(audio_bytes)
 
+            raw_secs = len(audio) / 16000.0
+            audio_max = float(np.abs(audio).max()) if len(audio) > 0 else 0.0
+            audio_rms = float(np.sqrt(np.mean(audio ** 2))) if len(audio) > 0 else 0.0
+            logger.info(
+                f"Received audio: bytes={len(audio_bytes)} samples={len(audio)} "
+                f"duration={raw_secs:.2f}s max_amp={audio_max:.4f} rms={audio_rms:.4f}"
+            )
+
             # Pad short audio to minimum 3 seconds — NPU static pipeline needs
             # sufficient audio length to reliably detect speech
             min_samples = 16000 * 3  # 3 seconds at 16kHz
             if len(audio) < min_samples:
-                audio = np.pad(audio, (0, min_samples - len(audio)), mode="constant")
+                pad_amount = min_samples - len(audio)
+                logger.info(f"Padding audio with {pad_amount} samples ({pad_amount/16000:.2f}s of silence)")
+                audio = np.pad(audio, (0, pad_amount), mode="constant")
 
-            # Build a fresh config each time to avoid stale state
-            config = openvino_genai.WhisperGenerationConfig()
+            # Load config from model's generation_config.json to preserve forced_decoder_ids,
+            # suppress_tokens, task token (50359 = transcribe), etc. A blank
+            # WhisperGenerationConfig() skips these and the pipeline generates nothing.
+            config_path = os.path.join(model_path, "generation_config.json")
+            if os.path.exists(config_path):
+                config = openvino_genai.WhisperGenerationConfig(config_path)
+            else:
+                config = openvino_genai.WhisperGenerationConfig()
             config.max_new_tokens = 448
 
             # The static NPU pipeline pre-compiles the generation graph and
@@ -129,15 +145,20 @@ async def inference(
             if prompt and device_name != "NPU":
                 config.initial_prompt = prompt
 
+            logger.info(f"Calling pipeline.generate (audio shape={audio.shape}, dtype={audio.dtype}, max_new_tokens={config.max_new_tokens})")
             result = pipeline.generate(audio, config)
 
-            # Parse result - openvino_genai returns a DecodedResults or string
-            if hasattr(result, "texts"):
+            # Parse result — openvino_genai returns a DecodedResults
+            text = ""
+            if hasattr(result, "texts") and result.texts:
                 text = " ".join(result.texts).strip()
-            elif hasattr(result, "__str__"):
-                text = str(result).strip()
+            elif hasattr(result, "text"):
+                text = str(result.text).strip()
             else:
-                text = result.strip() if isinstance(result, str) else ""
+                # Fallback: str() on WhisperDecodedResults sometimes returns the text
+                str_result = str(result).strip()
+                if str_result and not str_result.startswith("<"):
+                    text = str_result
 
             logger.info(f"Transcribed {len(audio) / 16000:.1f}s audio -> {len(text)} chars")
 
