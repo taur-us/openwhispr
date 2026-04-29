@@ -71,6 +71,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     whisperModel,
     localTranscriptionProvider,
     parakeetModel,
+    npuModel,
     cloudTranscriptionProvider,
     cloudTranscriptionModel,
     cloudTranscriptionBaseUrl,
@@ -156,7 +157,12 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   }, [setActivationMode]);
 
   useEffect(() => {
-    const modelToCheck = localTranscriptionProvider === "nvidia" ? parakeetModel : whisperModel;
+    const modelToCheck =
+      localTranscriptionProvider === "nvidia"
+        ? parakeetModel
+        : localTranscriptionProvider === "intel-npu"
+          ? npuModel
+          : whisperModel;
     if (!useLocalWhisper || !modelToCheck) {
       setIsModelDownloaded(false);
       return;
@@ -164,6 +170,14 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
     const checkStatus = async () => {
       try {
+        if (localTranscriptionProvider === "intel-npu") {
+          const models = await window.electronAPI?.listNpuModels();
+          const found = Array.isArray(models)
+            ? models.find((m: { id: string; downloaded: boolean }) => m.id === modelToCheck)
+            : null;
+          setIsModelDownloaded(found?.downloaded ?? false);
+          return;
+        }
         const result =
           localTranscriptionProvider === "nvidia"
             ? await window.electronAPI?.checkParakeetModelStatus(modelToCheck)
@@ -176,7 +190,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     };
 
     checkStatus();
-  }, [useLocalWhisper, whisperModel, parakeetModel, localTranscriptionProvider]);
+  }, [useLocalWhisper, whisperModel, parakeetModel, npuModel, localTranscriptionProvider]);
 
   // Auto-register default hotkey when entering the activation step
   // (step 3 for non-signed-in, step 2 for signed-in users)
@@ -410,11 +424,17 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                 updateTranscriptionSettings({ cloudTranscriptionModel: model })
               }
               selectedLocalModel={
-                localTranscriptionProvider === "nvidia" ? parakeetModel : whisperModel
+                localTranscriptionProvider === "nvidia"
+                  ? parakeetModel
+                  : localTranscriptionProvider === "intel-npu"
+                    ? npuModel
+                    : whisperModel
               }
               onLocalModelSelect={(modelId) => {
                 if (localTranscriptionProvider === "nvidia") {
                   updateTranscriptionSettings({ parakeetModel: modelId });
+                } else if (localTranscriptionProvider === "intel-npu") {
+                  updateTranscriptionSettings({ npuModel: modelId });
                 } else {
                   updateTranscriptionSettings({ whisperModel: modelId });
                 }
@@ -422,7 +442,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
               selectedLocalProvider={localTranscriptionProvider}
               onLocalProviderSelect={(provider) =>
                 updateTranscriptionSettings({
-                  localTranscriptionProvider: provider as "whisper" | "nvidia",
+                  localTranscriptionProvider: provider as "whisper" | "nvidia" | "intel-npu",
                 })
               }
               useLocalWhisper={useLocalWhisper}
@@ -588,7 +608,11 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
         // For non-signed-in users: Setup - check if configuration is complete
         if (useLocalWhisper) {
           const modelToCheck =
-            localTranscriptionProvider === "nvidia" ? parakeetModel : whisperModel;
+            localTranscriptionProvider === "nvidia"
+              ? parakeetModel
+              : localTranscriptionProvider === "intel-npu"
+                ? npuModel
+                : whisperModel;
           return modelToCheck !== "" && isModelDownloaded;
         } else {
           // For cloud mode, check if appropriate API key is set
