@@ -1,5 +1,11 @@
 const { autoUpdater } = require("electron-updater");
 
+// NPU fork kill-switch. The upstream OpenWhispr release feed does not contain
+// the Intel NPU code path — auto-updating would replace this build with vanilla
+// OpenWhispr and break NPU transcription. Set to false ONLY if this fork is
+// merged upstream and you want auto-updates re-enabled.
+const FORK_DISABLE_UPDATES = true;
+
 class UpdateManager {
   constructor() {
     this.mainWindow = null;
@@ -13,6 +19,7 @@ class UpdateManager {
     this.updateCheckInterval = null;
     this.windowManager = null;
     this._suppressNotification = false;
+    this.disabled = FORK_DISABLE_UPDATES;
 
     this.setupAutoUpdater();
   }
@@ -27,6 +34,10 @@ class UpdateManager {
   }
 
   setupAutoUpdater() {
+    if (this.disabled) {
+      console.log("[updater] Disabled by FORK_DISABLE_UPDATES (NPU fork)");
+      return;
+    }
     if (process.env.NODE_ENV === "development") {
       return;
     }
@@ -156,6 +167,9 @@ class UpdateManager {
 
   async checkForUpdates() {
     try {
+      if (this.disabled) {
+        return { updateAvailable: false, message: "Updates disabled (NPU fork)" };
+      }
       if (process.env.NODE_ENV === "development") {
         return {
           updateAvailable: false,
@@ -191,6 +205,9 @@ class UpdateManager {
 
   async downloadUpdate() {
     try {
+      if (this.disabled) {
+        return { success: false, message: "Updates disabled (NPU fork)" };
+      }
       if (process.env.NODE_ENV === "development") {
         return {
           success: false,
@@ -227,6 +244,9 @@ class UpdateManager {
 
   async installUpdate() {
     try {
+      if (this.disabled) {
+        return { success: false, message: "Updates disabled (NPU fork)" };
+      }
       if (process.env.NODE_ENV === "development") {
         return {
           success: false,
@@ -304,6 +324,9 @@ class UpdateManager {
   }
 
   checkForUpdatesOnStartup() {
+    if (this.disabled) {
+      return;
+    }
     if (process.env.NODE_ENV !== "development") {
       setTimeout(() => {
         console.log("🔄 Checking for updates on startup...");
