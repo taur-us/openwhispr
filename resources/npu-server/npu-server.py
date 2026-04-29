@@ -22,8 +22,17 @@ import soundfile as sf
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import JSONResponse
 
-logging.basicConfig(level=logging.INFO, format="[NPU] %(message)s")
+_log_path = os.path.join(tempfile.gettempdir(), "openwhispr-npu.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format="[NPU %(asctime)s] %(message)s",
+    handlers=[
+        logging.FileHandler(_log_path, mode="a", encoding="utf-8"),
+        logging.StreamHandler(sys.stdout),
+    ],
+)
 logger = logging.getLogger(__name__)
+logger.info(f"=== npu-server.py starting (log: {_log_path}) ===")
 
 app = FastAPI()
 pipeline = None
@@ -135,10 +144,12 @@ async def inference(
         return JSONResponse({"text": text})
 
     except Exception as e:
-        logger.error(f"Transcription error: {e}")
+        import traceback
+        tb = traceback.format_exc()
+        logger.error(f"Transcription error: {e}\n{tb}")
         return JSONResponse(
             status_code=500,
-            content={"error": str(e)},
+            content={"error": str(e), "traceback": tb},
         )
 
 
@@ -154,7 +165,17 @@ def main():
     model_path = args.model
     device_name = args.device
 
-    logger.info(f"Loading WhisperPipeline from {args.model} on {args.device}...")
+    logger.info(f"Loading WhisperPipeline from {args.model} on {args.device} (port {args.port})...")
+    logger.info(f"openvino-genai version check:")
+    try:
+        import openvino as ov
+        logger.info(f"  openvino: {ov.__version__}")
+    except Exception:
+        pass
+    try:
+        logger.info(f"  openvino_genai: {openvino_genai.__version__}")
+    except Exception:
+        pass
 
     try:
         pipeline = openvino_genai.WhisperPipeline(
@@ -162,7 +183,8 @@ def main():
         )
         logger.info(f"Pipeline loaded successfully on {args.device}")
     except Exception as e:
-        logger.error(f"Failed to load pipeline on {args.device}: {e}")
+        import traceback
+        logger.error(f"Failed to load pipeline on {args.device}: {e}\n{traceback.format_exc()}")
         if args.device == "NPU":
             logger.info("Falling back to CPU...")
             try:
