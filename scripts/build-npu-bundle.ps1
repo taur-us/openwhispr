@@ -152,6 +152,13 @@ Write-Host "[5/6] Injecting whisper-base model..."
 New-Item -ItemType Directory -Path (Split-Path $bundleModelDest -Parent) -Force | Out-Null
 Copy-Item -Path $bundledModelDir -Destination $bundleModelDest -Recurse -Force
 
+# ---------- Step 5b: Inject launcher (Setup-OpenWhispr.bat + README.txt) ----------
+
+$launcherSrc = Join-Path $repoRoot "scripts\launcher"
+Write-Host "[5b/6] Injecting launcher script + README..."
+Copy-Item -Path (Join-Path $launcherSrc "Setup-OpenWhispr.bat") -Destination $winUnpackedDir -Force
+Copy-Item -Path (Join-Path $launcherSrc "README.txt") -Destination $winUnpackedDir -Force
+
 # ---------- Step 6: Zip ----------
 
 Write-Host "[6/6] Zipping bundle..."
