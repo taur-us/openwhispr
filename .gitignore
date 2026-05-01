@@ -314,3 +314,6 @@ Thumbs.db
 .macos-fast-paste.hash
 .macos-fast-paste.*.hash
 .linux-fast-paste.hash
+
+# NPU bundle vendor cache (Python runtime, pre-staged models)
+vendor/

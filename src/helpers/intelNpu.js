@@ -47,7 +47,20 @@ class IntelNpuManager {
     return dir;
   }
 
+  // Bundled models ship inside resources/npu-models/<name>/ via
+  // scripts/build-npu-bundle.ps1. Returns null if no bundled copy exists.
+  getBundledModelPath(modelName) {
+    if (!process.resourcesPath) return null;
+    const bundled = path.join(process.resourcesPath, "npu-models", modelName);
+    return fs.existsSync(bundled) ? bundled : null;
+  }
+
   getModelPath(modelName) {
+    // Bundled models take precedence over user-downloaded ones — the install
+    // ships with a pre-staged whisper-base so colleagues don't need internet
+    // access to HuggingFace on first run.
+    const bundled = this.getBundledModelPath(modelName);
+    if (bundled) return bundled;
     return path.join(this.getModelsDir(), modelName);
   }
 
@@ -312,7 +325,12 @@ print("DOWNLOAD_COMPLETE")
   }
 
   async deleteModel(modelName) {
-    const modelDir = this.getModelPath(modelName);
+    // Never touch bundled models — they live inside the read-only install dir
+    // and deleting them would corrupt the app.
+    if (this.getBundledModelPath(modelName)) {
+      return { success: false, error: "Bundled models cannot be deleted" };
+    }
+    const modelDir = path.join(this.getModelsDir(), modelName);
     if (fs.existsSync(modelDir)) {
       fs.rmSync(modelDir, { recursive: true, force: true });
       debugLogger.info("NPU model deleted", { model: modelName });

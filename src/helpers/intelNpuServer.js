@@ -64,7 +64,15 @@ class IntelNpuServerManager extends EventEmitter {
   }
 
   getPythonPath() {
-    // Check for python3 first, then python
+    // Prefer bundled Python runtime shipped inside resources/python-runtime/.
+    // Built by scripts/build-npu-bundle.ps1 — lets the app run on machines
+    // that have no system Python (locked-down corporate boxes).
+    if (process.platform === "win32" && process.resourcesPath) {
+      const bundled = path.join(process.resourcesPath, "python-runtime", "python.exe");
+      if (fs.existsSync(bundled)) return bundled;
+    }
+
+    // Fall back to system Python on PATH (developer machines, non-bundled installs)
     const candidates =
       process.platform === "win32" ? ["python", "python3"] : ["python3", "python"];
 
